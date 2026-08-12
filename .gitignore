@@ -1,0 +1,26 @@
+# 日志文件
+logs/
+*.log
+
+# 日志目录保留占位文件
+!logs/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+*.iml
+.idea/
+
+# macOS
+.DS_Store
+.metadata
+
+# IDE
+.vscode/
