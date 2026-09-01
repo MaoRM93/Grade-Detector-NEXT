@@ -1,4 +1,4 @@
-# GradeMonitor — macOS 成绩自动监控工具
+# GradeMonitor — 适用于 RUC 教学系统的成绩自动监控工具
 
 再也不用每天刷教务系统了！这个小工具帮你自动查成绩。
 
