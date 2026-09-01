@@ -24,3 +24,6 @@ build/
 
 # IDE
 .vscode/
+
+# 遗留备份
+Backup/

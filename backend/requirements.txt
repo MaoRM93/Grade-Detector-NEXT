@@ -1,0 +1,7 @@
+# GradeMonitor 后端依赖
+# 启动: uvicorn backend.api.app:app --host 127.0.0.1 --port 18923
+fastapi>=0.115.0
+uvicorn>=0.30.0
+pydantic>=2.7.0
+requests>=2.32.0
+beautifulsoup4>=4.12.0
