@@ -2,8 +2,11 @@
 """
 本地数据缓存（成绩、排名）及数据目录管理
 """
+from __future__ import annotations
+
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -85,20 +88,75 @@ STATS_FILE = get_data_file_path("stats.json")
 
 
 # ---------- 成绩缓存 ----------
-def load_local_grades() -> dict:
-    """加载缓存的成绩数据"""
+# 课程对象的字段全为标量（无嵌套 dict/list），`\{[^{}]*\}` 能精确框出每个
+# 完整课程块，完全不依赖外层括号配对——即使文件因手动编辑出现残留括号、
+# 多余逗号或截断，每个本身完整的课程对象仍能被独立提取
+_COURSE_BLOCK_RE = re.compile(r"\{[^{}]*\}")
+
+
+def _extract_courses(raw: str) -> dict | None:
+    """从损坏的 JSON 文本中逐块抢救课程对象。
+
+    只认携带非空字符串 kth 字段的对象为课程，其余噪声块丢弃。
+    一个课程都提取不到时返回 None（区别于空 dict {}）。
+    """
+    courses: dict = {}
+    for m in _COURSE_BLOCK_RE.finditer(raw):
+        block = m.group(0)
+        try:
+            obj = json.loads(block)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            kth = obj.get("kth")
+            if isinstance(kth, str) and kth:
+                courses[kth] = obj
+    return courses if courses else None
+
+
+def load_local_grades() -> dict | None:
+    """加载缓存的成绩数据。
+
+    返回值语义：
+    - dict（可为空 {}）：合法基准；{} 表示首次运行/无缓存（合法状态）
+    - None：文件损坏且无法修复的哨兵信号，调用方必须跳过本轮对比（绝不误报）
+    """
     if os.path.exists(LOCAL_GRADES_FILE):
         try:
             with open(LOCAL_GRADES_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
+                if not isinstance(data, dict):
+                    logger.error(
+                        f"成绩缓存顶层结构不是 dict（{type(data).__name__}），"
+                        f"视为损坏: {LOCAL_GRADES_FILE}"
+                    )
+                    return None
                 logger.info(f"读取成绩缓存: {LOCAL_GRADES_FILE}  ({len(data)} 门)")
                 return data
         except json.JSONDecodeError as e:
             logger.error(f"JSON 解析失败（可能手动编辑格式错误）: {LOCAL_GRADES_FILE} - {e}")
-            return {}
+            # 二级策略：正则逐块抢救课程对象
+            try:
+                with open(LOCAL_GRADES_FILE, "r", encoding="utf-8") as f:
+                    raw = f.read()
+                repaired = _extract_courses(raw)
+                if repaired is not None:
+                    logger.warning(
+                        f"JSON 损坏，已逐个课程修复（恢复 {len(repaired)} 门），回写缓存文件"
+                    )
+                    save_local_grades(repaired)  # 回写修复结果，下次直接正常解析
+                    return repaired
+                # 三级策略：彻底无法恢复 → None 哨兵，调用方跳过本轮对比
+                logger.error(
+                    "JSON 彻底损坏且无法提取任何课程，返回 None（跳过本轮成绩对比，零误报）"
+                )
+                return None
+            except Exception as e2:
+                logger.error(f"JSON 损坏修复流程失败: {e2}")
+                return None
         except Exception as e:
             logger.error(f"Failed to load cached grades: {e}")
-            return {}
+            return None
     logger.info(f"成绩缓存文件不存在: {LOCAL_GRADES_FILE}")
     return {}
 
@@ -110,51 +168,55 @@ def save_local_grades(grades_dict: dict) -> None:
     logger.info(f"写入成绩缓存: {LOCAL_GRADES_FILE}  ({len(grades_dict)} 门)")
 
 
+def _normalize_value(val):
+    """字段值归一化：消除"等价但类型不同"的假变动。
+
+    - None 保持 None；bool 必须在 int 判断之前（bool 是 int 子类）
+    - 整数值的 float（7.0 → 7），消除 int 7 vs float 7.0 抖动
+    - 字符串去首尾空白
+    - list/dict 转规范化 JSON 字符串再比较
+    """
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, float):
+        return int(val) if val.is_integer() else val
+    if isinstance(val, str):
+        return val.strip()
+    if isinstance(val, (list, dict)):
+        return json.dumps(val, ensure_ascii=False, sort_keys=True)
+    return val
+
+
 def diff_grades(old_grades: dict, new_grades: dict) -> tuple:
     """
     对比新旧成绩，返回 (new_courses, changed_courses)
-    - new_courses: old 中不存在的课程（用户手动删掉后重新出现）
-    - changed_courses: 平时成绩/绩点/加权成绩有变化的课程
+    - new_courses: 基准中不存在的课程（服务器新增，或用户手动删掉后重新出现）
+    - changed_courses: 任一字段归一化后不等的课程
+
+    不变量：严格按课程号 kth 做 dict 键值对比，绝不按顺序/索引——
+    删除中间一门课只会使该门课被判为"新增"，绝不连带其他课程误报。
     """
-
-    def _safe_str(val) -> str:
-        """将值转为字符串，None 转为空字符串，避免 str(None) → 'None'"""
-        if val is None:
-            return ""
-        return str(val)
-
     new_courses = []
     changed_courses = []
     for kth, course in new_grades.items():
         if kth not in old_grades:
             new_courses.append(course)
             logger.info(f"[Diff] 新增课程: {course.get('kcname', '未知')} (kth={kth})")
-        else:
-            old = old_grades[kth]
+            continue
 
-            cjxm1_old = _safe_str(old.get("cjxm1"))
-            cjxm1_new = _safe_str(course.get("cjxm1"))
-            cjxm1_changed = cjxm1_new != cjxm1_old
-
-            jd_old = _safe_str(old.get("jd"))
-            jd_new = _safe_str(course.get("jd"))
-            jd_changed = jd_new != jd_old
-
-            zcj_old = _safe_str(old.get("zcj"))
-            zcj_new = _safe_str(course.get("zcj"))
-            zcj_changed = zcj_new != zcj_old
-
-            if cjxm1_changed or jd_changed or zcj_changed:
-                changed_courses.append(course)
-                course_name = course.get("kcname", "未知")
-                details = []
-                if cjxm1_changed:
-                    details.append(f"平时成绩: {cjxm1_old or '(空)'} -> {cjxm1_new or '(空)'}")
-                if jd_changed:
-                    details.append(f"绩点: {jd_old or '(空)'} -> {jd_new or '(空)'}")
-                if zcj_changed:
-                    details.append(f"加权成绩: {zcj_old or '(空)'} -> {zcj_new or '(空)'}")
-                logger.info(f"[Diff] {course_name} (kth={kth}) 变动: {'; '.join(details)}")
+        old = old_grades[kth]
+        changed_fields = [
+            f for f in set(old) | set(course)
+            if _normalize_value(old.get(f)) != _normalize_value(course.get(f))
+        ]
+        if changed_fields:
+            changed_courses.append(course)
+            logger.info(
+                f"[Diff] {course.get('kcname', '未知')} (kth={kth}) 变动字段: "
+                f"{', '.join(sorted(changed_fields))}"
+            )
 
     return new_courses, changed_courses
 

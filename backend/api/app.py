@@ -259,6 +259,7 @@ async def get_monitor_status():
         "is_running": monitor.is_running,
         "last_query_at": last_q.isoformat() if last_q else None,
         "total_queries": load_total_query_count(),
+        "query_abuse_detected": monitor.abuse_detected,
     }
 
 
@@ -355,7 +356,12 @@ async def query_once():
     try:
         # 1. 从本地 JSON 文件读取作为对比基准（不是内存缓存）
         old_grades = load_local_grades()
-        logger.info(f"[手动查询] 本地JSON中有 {len(old_grades)} 门课程")
+        if old_grades is None:
+            # JSON 损坏且无法修复：仍查询/更新缓存，但绝不拿残缺基准对比误报
+            logger.error("[手动查询] 本地JSON损坏且无法修复，本次仅更新缓存、跳过对比通知")
+            old_grades = None
+        else:
+            logger.info(f"[手动查询] 本地JSON中有 {len(old_grades)} 门课程")
 
         # 2. 从服务器获取最新数据
         gs = GradeService(username, password)
@@ -367,11 +373,13 @@ async def query_once():
                 new_dict[kth] = course
         logger.info(f"[手动查询] 服务器返回 {len(new_dict)} 门课程")
 
-        # 3. 对比差异
-        new_courses, changed_courses = diff_grades(old_grades, new_dict)
-        logger.info(
-            f"[手动查询] 对比结果: 新增 {len(new_courses)} 门, 变动 {len(changed_courses)} 门"
-        )
+        # 3. 对比差异（基准损坏时跳过对比，new/changed 保持为空 → 不发通知）
+        new_courses, changed_courses = [], []
+        if old_grades is not None:
+            new_courses, changed_courses = diff_grades(old_grades, new_dict)
+            logger.info(
+                f"[手动查询] 对比结果: 新增 {len(new_courses)} 门, 变动 {len(changed_courses)} 门"
+            )
 
         # 4. 保存最新数据
         _update_grades_cache(new_dict)

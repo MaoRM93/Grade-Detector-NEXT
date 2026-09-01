@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/service/tray_service.dart';
+import '../../core/service/update_service.dart';
+import '../update/update_dialog.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/monitor_provider.dart';
 import '../../widgets/glass_card.dart';
@@ -41,10 +43,24 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   bool _prevShowMenubarIcon = true;
   bool _loaded = false;
 
+  // 检查更新
+  bool _isCheckingUpdate = false;
+  String _updateStatus = '';
+  Color? _updateStatusColor;
+  String _appVersion = '';
+
   @override
   void initState() {
     super.initState();
     Future.microtask(_loadSettings);
+    Future.microtask(_loadAppVersion);
+  }
+
+  Future<void> _loadAppVersion() async {
+    final v = await UpdateService().loadCurrentVersion();
+    if (mounted && v.isNotEmpty) {
+      setState(() => _appVersion = v);
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -56,7 +72,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     _hidePassword = true;
     _autoMonitor = s.autoMonitorEnabled;
     _rankMonitor = s.rankMonitorEnabled;
-    _intervalValue = s.intervalSeconds.toDouble();
+    // 设置里可能存有超出滑块范围（300–3600）的值（如测试期间写入的 10 秒），
+    // Slider 要求 value 处于 [min, max]，加载时收敛到合法区间
+    _intervalValue = s.intervalSeconds.toDouble().clamp(300.0, 3600.0);
     final start = _parseTime(s.startTime);
     final end = _parseTime(s.endTime);
     _startTime = start;
@@ -198,6 +216,39 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     _hideUnknownCourses = v;
     setState(() {});
     _saveSettings({'hide_unknown_courses': v});
+  }
+
+  /// 手动检查更新：检查中 / 检查成功（已最新 / 有更新）/ 检查失败 三态反馈
+  Future<void> _checkUpdate() async {
+    if (_isCheckingUpdate) return;
+    setState(() {
+      _isCheckingUpdate = true;
+      _updateStatus = '检查中…';
+      _updateStatusColor = null;
+    });
+    final result = await UpdateService().check();
+    if (!mounted) return;
+    setState(() => _isCheckingUpdate = false);
+    // 禁用页即将接管全屏，无需提示
+    if (UpdateService().disabled.value) return;
+
+    if (result.success && result.hasUpdate) {
+      setState(() {
+        _updateStatus = '检测到版本更新：${result.latestVersion}';
+        _updateStatusColor = AppTheme.success;
+      });
+      await showUpdateDialog(context, result);
+    } else if (result.success) {
+      setState(() {
+        _updateStatus = '检查成功，当前已经是最新版本 ${result.currentVersion}';
+        _updateStatusColor = AppTheme.success;
+      });
+    } else {
+      setState(() {
+        _updateStatus = '检查失败：${result.message ?? '未知错误'}';
+        _updateStatusColor = AppTheme.error;
+      });
+    }
   }
 
   Future<void> _testLogin() async {
@@ -639,6 +690,58 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       value: _hideUnknownCourses,
                       onChanged: _onHideUnknownChanged,
                     ),
+                    const Divider(height: 24),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        '检查更新',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '每 1 小时自动检查，当前版本 '
+                            '${_appVersion.isEmpty ? '…' : _appVersion}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: colorScheme.onSurface.withValues(
+                                alpha: .35,
+                              ),
+                            ),
+                          ),
+                          if (_updateStatus.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 3),
+                              child: Text(
+                                _updateStatus,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color:
+                                      _updateStatusColor ??
+                                      colorScheme.onSurface.withValues(
+                                        alpha: .55,
+                                      ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      trailing: _isCheckingUpdate
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : TextButton.icon(
+                              onPressed: _checkUpdate,
+                              icon: const Icon(Icons.refresh_rounded, size: 18),
+                              label: const Text('立即检查'),
+                            ),
+                    ),
                   ],
                 ),
               ),
@@ -655,7 +758,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         color: colorScheme.onSurface.withValues(alpha: .25),
                       ),
                       children: [
-                        const TextSpan(text: 'Version: 27G36 · '),
+                        const TextSpan(text: 'Version: '),
+                        TextSpan(text: _appVersion.isEmpty ? '…' : _appVersion),
+                        const TextSpan(text: ' · '),
                         const TextSpan(
                           text:
                               'Copyright © 2024-2030 GradeDetector. All rights reserved. · ',

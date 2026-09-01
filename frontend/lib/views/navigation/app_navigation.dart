@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../core/service/update_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/network/api_client.dart';
 import '../dashboard/dashboard_page.dart';
+import '../disabled/disabled_page.dart';
 import '../grades/grades_page.dart';
 import '../settings/settings_page.dart';
 import '../welcome/welcome_dialog.dart';
@@ -33,6 +35,8 @@ class _AppNavigationState extends State<AppNavigation> {
   @override
   void initState() {
     super.initState();
+    // 预加载应用版本号（主页左下角精简显示用）
+    UpdateService().loadCurrentVersion();
     // 首帧渲染后再检查欢迎页，确保 context 可用
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkWelcomeWithRetry();
@@ -169,7 +173,8 @@ class _AppNavigationState extends State<AppNavigation> {
                     child: GestureDetector(
                       onTap: _onVersionTap,
                       child: Text(
-                        '版本号：27G36',
+                        '版本号：'
+                        '${UpdateService.shortVersion.isEmpty ? '…' : UpdateService.shortVersion}',
                         style: TextStyle(
                           fontSize: 10,
                           color: colorScheme.onSurface.withValues(alpha: .3),
@@ -332,7 +337,7 @@ class _DevToolsDialogState extends State<_DevToolsDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Column(
+      title: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -340,7 +345,18 @@ class _DevToolsDialogState extends State<_DevToolsDialog> {
             children: [
               Icon(Icons.construction_rounded, color: AppTheme.error, size: 22),
               SizedBox(width: 8),
-              Text('开发者工具', style: TextStyle(color: AppTheme.error)),
+              // 红色“开发者工具”文字同时作为禁用页 debug 入口
+              GestureDetector(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const DisabledScreen()),
+                  );
+                },
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: Text('开发者工具', style: TextStyle(color: AppTheme.error)),
+                ),
+              ),
             ],
           ),
           SizedBox(height: 4),
@@ -351,6 +367,12 @@ class _DevToolsDialogState extends State<_DevToolsDialog> {
               color: Colors.grey,
               fontStyle: FontStyle.italic,
             ),
+          ),
+          SizedBox(height: 2),
+          Text(
+            'Version: '
+            '${UpdateService().currentVersion.isEmpty ? '…' : UpdateService().currentVersion}',
+            style: const TextStyle(fontSize: 10, color: Colors.grey),
           ),
         ],
       ),

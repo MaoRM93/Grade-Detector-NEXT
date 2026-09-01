@@ -1,7 +1,7 @@
 name: grademonitor
 description: "GradeMonitor - 自动查成绩桌面小工具"
 publish_to: 'none'
-version: 1.0.0+27G36
+version: 107.0.0+115
 
 environment:
   sdk: ^3.12.2
@@ -35,6 +35,9 @@ dependencies:
 
   # 工具
   intl: ^0.20.2
+
+  # 读取应用版本号（检查更新用）
+  package_info_plus: ^8.0.0
 
 dev_dependencies:
   flutter_test:
