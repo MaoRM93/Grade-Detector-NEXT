@@ -18,6 +18,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
   String? _lastUsername;
   String _selectedSemester = '全部';
   bool _isQuerying = false;
+  bool _isTogglingMonitor = false;
   bool _showDetailData = true;
 
   @override
@@ -43,7 +44,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
     _lastUsername = settings.username;
 
     // 加载缓存数据（后端已在内存中持有）
-    _refreshAll();
+    await _refreshAll();
 
     // 如果开启了自动监控但未运行，自动启动
     if (!mounted) return;
@@ -80,6 +81,50 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
       }
     } finally {
       if (mounted) setState(() => _isQuerying = false);
+    }
+  }
+
+  /// 启动/停止监控（带 loading 与结果反馈）
+  Future<void> _toggleMonitor() async {
+    if (_isTogglingMonitor) return;
+    setState(() => _isTogglingMonitor = true);
+    try {
+      final status = ref.read(monitorProvider);
+      final s = ref.read(settingsProvider);
+      if (status.isRunning) {
+        // 停止监控 + 关闭设置中的自动监控开关
+        await ref
+            .read(settingsProvider.notifier)
+            .saveSettings(
+              s.copyWith(autoMonitorEnabled: false, rankMonitorEnabled: false),
+            );
+        await ref.read(monitorProvider.notifier).stopMonitor();
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('监控已停止')));
+        }
+      } else {
+        // 启动监控 + 打开设置中的成绩自动监控开关
+        await ref
+            .read(settingsProvider.notifier)
+            .saveSettings(s.copyWith(autoMonitorEnabled: true));
+        await ref.read(monitorProvider.notifier).startMonitor();
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('监控已启动，将按间隔自动查询')));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('操作失败: $e'), backgroundColor: AppTheme.error),
+        );
+      }
+    } finally {
+      await ref.read(monitorProvider.notifier).fetchStatus();
+      if (mounted) setState(() => _isTogglingMonitor = false);
     }
   }
 
@@ -172,29 +217,8 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                     : Icons.play_arrow_rounded,
                 label: status.isRunning ? '停止监控' : '启动监控',
                 color: status.isRunning ? AppTheme.error : AppTheme.success,
-                onTap: () async {
-                  if (status.isRunning) {
-                    // 停止监控 + 关闭设置中的自动监控开关
-                    final s = ref.read(settingsProvider);
-                    await ref
-                        .read(settingsProvider.notifier)
-                        .saveSettings(
-                          s.copyWith(
-                            autoMonitorEnabled: false,
-                            rankMonitorEnabled: false,
-                          ),
-                        );
-                    await ref.read(monitorProvider.notifier).stopMonitor();
-                  } else {
-                    // 启动监控 + 打开设置中的成绩自动监控开关
-                    final s = ref.read(settingsProvider);
-                    await ref
-                        .read(settingsProvider.notifier)
-                        .saveSettings(s.copyWith(autoMonitorEnabled: true));
-                    await ref.read(monitorProvider.notifier).startMonitor();
-                  }
-                  ref.read(monitorProvider.notifier).fetchStatus();
-                },
+                loading: _isTogglingMonitor,
+                onTap: _isTogglingMonitor ? null : _toggleMonitor,
               ),
             ],
           ),
@@ -315,17 +339,35 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.auto_stories_rounded, size: 20, color: colorScheme.primary),
+                  Icon(
+                    Icons.auto_stories_rounded,
+                    size: 20,
+                    color: colorScheme.primary,
+                  ),
                   const SizedBox(width: 8),
-                  const Text('成绩列表', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  const Text(
+                    '成绩列表',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
                   const Spacer(),
                   const Text('学期：', style: TextStyle(fontSize: 12)),
                   DropdownButton<String>(
-                    value: semesterList.contains(_selectedSemester) ? _selectedSemester : '全部',
+                    value: semesterList.contains(_selectedSemester)
+                        ? _selectedSemester
+                        : '全部',
                     items: semesterList
-                        .map((s) => DropdownMenuItem(value: s, child: Text(s, style: const TextStyle(fontSize: 12))))
+                        .map(
+                          (s) => DropdownMenuItem(
+                            value: s,
+                            child: Text(
+                              s,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        )
                         .toList(),
-                    onChanged: (v) => setState(() => _selectedSemester = v ?? '全部'),
+                    onChanged: (v) =>
+                        setState(() => _selectedSemester = v ?? '全部'),
                     underline: const SizedBox(),
                     isDense: true,
                   ),
@@ -337,7 +379,8 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                         height: 24,
                         child: Checkbox(
                           value: _showDetailData,
-                          onChanged: (v) => setState(() => _showDetailData = v ?? true),
+                          onChanged: (v) =>
+                              setState(() => _showDetailData = v ?? true),
                         ),
                       ),
                       const Text('详细', style: TextStyle(fontSize: 11)),
@@ -346,7 +389,10 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                   const SizedBox(width: 4),
                   Text(
                     '${filtered.length}门',
-                    style: TextStyle(fontSize: 12, color: colorScheme.onSurface.withValues(alpha: .5)),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: colorScheme.onSurface.withValues(alpha: .5),
+                    ),
                   ),
                 ],
               ),
@@ -357,42 +403,120 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                     return SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: ConstrainedBox(
-                        constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                        constraints: BoxConstraints(
+                          minWidth: constraints.maxWidth,
+                        ),
                         child: DataTable(
                           headingRowColor: WidgetStateProperty.all(
-                            colorScheme.surfaceContainerHighest.withValues(alpha: .3),
+                            colorScheme.surfaceContainerHighest.withValues(
+                              alpha: .3,
+                            ),
                           ),
-                          headingTextStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: colorScheme.onSurface),
-                          dataTextStyle: TextStyle(fontSize: 12, color: colorScheme.onSurface),
+                          headingTextStyle: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: colorScheme.onSurface,
+                          ),
+                          dataTextStyle: TextStyle(
+                            fontSize: 12,
+                            color: colorScheme.onSurface,
+                          ),
                           columnSpacing: constraints.maxWidth > 600 ? 24 : 14,
                           horizontalMargin: 10,
                           columns: const [
                             DataColumn(label: Center(child: Text('学期'))),
                             DataColumn(label: Center(child: Text('课程'))),
-                            DataColumn(label: Center(child: Text('平时成绩')), numeric: true),
-                            DataColumn(label: Center(child: Text('期末成绩')), numeric: true),
-                            DataColumn(label: Center(child: Text('加权成绩')), numeric: true),
-                            DataColumn(label: Center(child: Text('绩点')), numeric: true),
-                            DataColumn(label: Center(child: Text('平均绩点')), numeric: true),
+                            DataColumn(
+                              label: Center(child: Text('平时成绩')),
+                              numeric: true,
+                            ),
+                            DataColumn(
+                              label: Center(child: Text('期末成绩')),
+                              numeric: true,
+                            ),
+                            DataColumn(
+                              label: Center(child: Text('加权成绩')),
+                              numeric: true,
+                            ),
+                            DataColumn(
+                              label: Center(child: Text('绩点')),
+                              numeric: true,
+                            ),
+                            DataColumn(
+                              label: Center(child: Text('平均绩点')),
+                              numeric: true,
+                            ),
                           ],
                           rows: filtered
                               .map(
                                 (course) => DataRow(
                                   cells: [
-                                    DataCell(Center(child: Text(course.xnxq.isEmpty ? '-' : course.xnxq))),
-                                    DataCell(Center(
-                                      child: ConstrainedBox(
-                                        constraints: const BoxConstraints(maxWidth: 150),
-                                        child: Text(course.kcname, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    DataCell(
+                                      Center(
+                                        child: Text(
+                                          course.xnxq.isEmpty
+                                              ? '-'
+                                              : course.xnxq,
+                                        ),
                                       ),
-                                    )),
-                                    DataCell(Center(child: Text(course.cjxm1.isEmpty ? '-' : course.cjxm1))),
-                                    DataCell(Center(child: Text(course.cjxm3.isEmpty ? '-' : course.cjxm3))),
-                                    DataCell(Center(child: Text(course.zcj.isEmpty ? '-' : course.zcj))),
-                                    DataCell(Center(child: Text(course.jd.isEmpty ? '-' : course.jd))),
-                                    DataCell(Center(
-                                      child: Text(course.avgGpa, style: _gpaStyle(course.avgGpa, colorScheme)),
-                                    )),
+                                    ),
+                                    DataCell(
+                                      Center(
+                                        child: ConstrainedBox(
+                                          constraints: const BoxConstraints(
+                                            maxWidth: 150,
+                                          ),
+                                          child: Text(
+                                            course.kcname,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    DataCell(
+                                      Center(
+                                        child: Text(
+                                          course.cjxm1.isEmpty
+                                              ? '-'
+                                              : course.cjxm1,
+                                        ),
+                                      ),
+                                    ),
+                                    DataCell(
+                                      Center(
+                                        child: Text(
+                                          course.cjxm3.isEmpty
+                                              ? '-'
+                                              : course.cjxm3,
+                                        ),
+                                      ),
+                                    ),
+                                    DataCell(
+                                      Center(
+                                        child: Text(
+                                          course.zcj.isEmpty ? '-' : course.zcj,
+                                        ),
+                                      ),
+                                    ),
+                                    DataCell(
+                                      Center(
+                                        child: Text(
+                                          course.jd.isEmpty ? '-' : course.jd,
+                                        ),
+                                      ),
+                                    ),
+                                    DataCell(
+                                      Center(
+                                        child: Text(
+                                          course.avgGpa,
+                                          style: _gpaStyle(
+                                            course.avgGpa,
+                                            colorScheme,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               )

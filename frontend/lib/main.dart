@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show PlatformDispatcher;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
@@ -9,22 +10,34 @@ import 'core/service/backend_service.dart';
 import 'core/service/tray_service.dart';
 import 'core/service/notification_service.dart';
 import 'core/network/websocket_service.dart';
-import 'core/service/update_service.dart';
-import 'views/disabled/disabled_page.dart';
-import 'views/update/update_dialog.dart';
 import 'views/navigation/app_navigation.dart';
+import 'views/disabled/disabled_page.dart';
+import 'services/update_service.dart';
 
 /// 全局 WebSocket — 用于通知监听，独立于 UI 生命周期
 final _globalWs = WebSocketService();
-
-/// 全局导航器 — 更新弹窗等无 BuildContext 场景使用
-final navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await AppLogger.init(minLevel: LogLevel.debug);
   final log = AppLogger('main');
+
+  // 全局错误捕获：写入日志文件，避免 debug 断言错误只闪现在终端无法回溯
+  FlutterError.onError = (details) {
+    log.error(
+      'FlutterError: ${details.exception}',
+      details.exception,
+      details.stack,
+    );
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    log.error('未捕获异常: $error', error, stack);
+    return true;
+  };
+
+  // 初始化更新服务：读取完整版本号 + 静默检查远程停用开关
+  await UpdateService().init();
 
   await BackendService().start();
 
@@ -74,14 +87,6 @@ void main() async {
   await windowManager.show();
   await windowManager.focus();
   log.info('窗口已显示');
-
-  // 启动 GitHub 更新检查：每 1 小时一次，静默失败，发现新版本时弹窗
-  UpdateService().startPeriodicCheck(
-    onUpdateAvailable: (result) {
-      final ctx = navigatorKey.currentContext;
-      if (ctx != null) showUpdateDialog(ctx, result);
-    },
-  );
 }
 
 /// 从后端读取设置，决定是否显示托盘图标
@@ -118,17 +123,11 @@ class _GradeMonitorAppState extends State<GradeMonitorApp> with WindowListener {
   void initState() {
     super.initState();
     windowManager.addListener(this);
-    UpdateService().disabled.addListener(_onDisabledChanged);
-  }
-
-  void _onDisabledChanged() {
-    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     windowManager.removeListener(this);
-    UpdateService().disabled.removeListener(_onDisabledChanged);
     BackendService().stop();
     super.dispose();
   }
@@ -143,14 +142,16 @@ class _GradeMonitorAppState extends State<GradeMonitorApp> with WindowListener {
     return MaterialApp(
       title: 'GradeMonitor',
       debugShowCheckedModeBanner: false,
-      navigatorKey: navigatorKey,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
-      // 禁用状态接管整个应用页面（非弹窗）
-      home: UpdateService().disabled.value
-          ? const DisabledScreen()
-          : const AppNavigation(),
+      // 禁用开关生效时切换显示 DisabledScreen 替代 AppNavigation
+      home: ValueListenableBuilder<bool>(
+        valueListenable: UpdateService.disabled,
+        builder: (context, isDisabled, child) {
+          return isDisabled ? const DisabledScreen() : const AppNavigation();
+        },
+      ),
     );
   }
 }
