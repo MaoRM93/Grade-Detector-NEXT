@@ -1,12 +1,9 @@
 # GradeMonitor — 适用于 RUC 教学系统的成绩自动监控工具
 
-**Bug说明：用户反馈在 macOS 15.6 及更低版本的系统下无法弹出通知，这是因为您没有更新最新版本的 macOS 。请您前往 设置 - 通用 - 软件更新 中检查并安装系统更新。目前 macOS 26 和 27 测试版均无此问题。**
+**Bug说明：用户反馈在 macOS 15.6 及更低版本的系统下无法弹出通知，这是因为您没有更新最新版本的 macOS 。请您前往 设置 - 通用 - 软件更新 中检查并安装系统更新。目前 macOS 26 和 27 均无此问题。
+用户反馈在 Windows 10 上会偶发第一次启动应用时前台界面无法及时拉起后端服务的情况，这可能与您的操作系统版本有关。请更新到 Windows 11 以解决此问题。**
 
-再也不用每天刷教务系统了！这个小工具帮你自动查成绩。
-
-考完试，最让人头疼的是什么？不是考试，不是论文——而是每天反复登录教务系统，一遍遍刷新成绩页面，生怕错过任何一门出分。
-
-GradeMonitor 是一款适配 **macOS 与 Windows** 的成绩排名自动检测工具，安装后默默在后台工作，出分了就发通知告诉你，省下大把刷网页的时间。
+GradeMonitor（原名 Grade Detector） 是一款适配 **macOS 与 Windows** 的成绩排名自动检测工具，安装后根据你的设置默默在后台工作，出分了就发通知告诉你，省下大把刷网页的时间。
 
 <img width="700" height="200" alt="image" src="https://github.com/user-attachments/assets/c174b384-67ee-4865-87a5-0dbb89d0fa63" />
 
@@ -46,7 +43,7 @@ GradeMonitor 是一款适配 **macOS 与 Windows** 的成绩排名自动检测�
 
 ### Windows 端
 
-1. 下载最新版安装程序 `GradeMonitor_107.0.0.115_Windows_x64.zip`，解压后双击运行exe安装包，按向导完成安装（无需管理员权限）
+1. 下载最新版安装程序 `GradeMonitor_107.0.0.xxx_Windows_x64.zip`，解压后双击运行exe安装包，按向导完成安装（无需管理员权限）
 2. 启动 GradeMonitor，在设置页填写学号和密码（可勾选记住密码）
 3. 勾选需要监测的项目，设置时间范围和间隔
 4. 点击「启动自动监控」，然后关闭窗口——程序会在后台默默工作
@@ -55,7 +52,7 @@ GradeMonitor 是一款适配 **macOS 与 Windows** 的成绩排名自动检测�
 
 ### macOS 端
 
-1. 下载 `GradeMonitor_107.0.0.115_macOS_AppleSilicon.zip`，解压后将 `GradeMonitor.app` 拖入「应用程序」文件夹
+1. 下载 `GradeMonitor_107.0.0.xxx_macOS_AppleSilicon.zip`，解压后将 `GradeMonitor.app` 拖入「应用程序」文件夹
 2. 首次打开，请打开「应用程序」文件夹或 启动台 ，右键点击 App → 选择「打开」，确认运行
 3. 在界面上方填写学号和密码（可勾选记住密码）
 4. 勾选需要监测的项目，设置时间范围和间隔
@@ -69,8 +66,8 @@ GradeMonitor 是一款适配 **macOS 与 Windows** 的成绩排名自动检测�
 
 ## 系统要求
 
-- macOS 13 及以上（仅 Apple Silicon / M 系列芯片）
-- Windows 10 版本 1809 及以上（x64）
+- macOS 13 及以上（仅 Apple Silicon / M 系列芯片）；推荐最新版：macOS 27.0.1
+- Windows 10 64位，版本 1809 及以上（x64）；推荐最新版：Windows 11 26H2
 
 ## 注意事项与免责声明
 
